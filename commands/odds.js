@@ -67,7 +67,7 @@ async function oddsCommand(bot, msg) {
 
             const probabilidadeRealHome = (probabilidadesReais[evento.home_team]?.winRate || probabilidadeImplicitaHome / 100) * 100;
             const probabilidadeRealAway = (probabilidadesReais[evento.away_team]?.winRate || probabilidadeImplicitaAway / 100) * 100;
-            const probabilidadeRealDraw = (1 - probabilidadeRealHome / 100 - probabilidadeRealAway / 100) * 100;
+            const probabilidadeRealDraw = (probabilidadeRealHome && probabilidadeRealAway) ? (1 - (probabilidadeRealHome / 100 + probabilidadeRealAway / 100)) * 100 : probabilidadeImplicitaDraw;
 
             eventos.push({
               home_team: evento.home_team,
@@ -96,26 +96,26 @@ async function oddsCommand(bot, msg) {
       let melhorAposta = '';
 
       if (maiorProbabilidade === melhorEvento.probabilidadeRealHome) {
-        melhorAposta = `👉 Vitória ${melhorEvento.home_team}: ${melhorEvento.oddsHome} (Probabilidade Real: ${melhorEvento.probabilidadeRealHome.toFixed(2)}%)\n\n`;
+        melhorAposta = `👉 *Vitória ${melhorEvento.home_team}*: ${melhorEvento.oddsHome} (Probabilidade Real: ${melhorEvento.probabilidadeRealHome.toFixed(2)}%)\n\n`;
       } else if (maiorProbabilidade === melhorEvento.probabilidadeRealAway) {
-        melhorAposta = `👉 Vitória ${melhorEvento.away_team}: ${melhorEvento.oddsAway} (Probabilidade Real: ${melhorEvento.probabilidadeRealAway.toFixed(2)}%)\n\n`;
+        melhorAposta = `👉 *Vitória ${melhorEvento.away_team}*: ${melhorEvento.oddsAway} (Probabilidade Real: ${melhorEvento.probabilidadeRealAway.toFixed(2)}%)\n\n`;
       } else {
-        melhorAposta = `👉 Empate: ${melhorEvento.oddsDraw} (Probabilidade Real: ${melhorEvento.probabilidadeRealDraw.toFixed(2)}%)\n\n`;
+        melhorAposta = `👉 *Empate*: ${melhorEvento.oddsDraw} (Probabilidade Real: ${melhorEvento.probabilidadeRealDraw.toFixed(2)}%)\n\n`;
       }
 
-      mensagem += `${melhorEvento.home_team} vs ${melhorEvento.away_team}\n`;
+      mensagem += `*${melhorEvento.home_team} vs ${melhorEvento.away_team}*\n`;
       mensagem += melhorAposta;
 
       // Adicionar as outras opções excluindo o melhor evento
       eventos.slice(1, 4).forEach((evento, index) => {
         if (evento.home_team !== melhorEvento.home_team || evento.away_team !== melhorEvento.away_team) {
-          mensagem += `${index + 1}. ${evento.home_team} vs ${evento.away_team}\n`;
+          mensagem += `${index + 1}. *${evento.home_team} vs ${evento.away_team}*\n`;
           if (evento.probabilidadeRealHome > evento.probabilidadeRealAway && evento.probabilidadeRealHome > evento.probabilidadeRealDraw) {
-            mensagem += `  - Vitória ${evento.home_team}: ${evento.oddsHome} (Probabilidade Real: ${evento.probabilidadeRealHome.toFixed(2)}%)\n`;
+            mensagem += `  - *Vitória ${evento.home_team}*: ${evento.oddsHome} (Probabilidade Real: ${evento.probabilidadeRealHome.toFixed(2)}%)\n`;
           } else if (evento.probabilidadeRealAway > evento.probabilidadeRealHome && evento.probabilidadeRealAway > evento.probabilidadeRealDraw) {
-            mensagem += `  - Vitória ${evento.away_team}: ${evento.oddsAway} (Probabilidade Real: ${evento.probabilidadeRealAway.toFixed(2)}%)\n`;
+            mensagem += `  - *Vitória ${evento.away_team}*: ${evento.oddsAway} (Probabilidade Real: ${evento.probabilidadeRealAway.toFixed(2)}%)\n`;
           } else {
-            mensagem += `  - Empate: ${evento.oddsDraw} (Probabilidade Real: ${evento.probabilidadeRealDraw.toFixed(2)}%)\n`;
+            mensagem += `  - *Empate*: ${evento.oddsDraw} (Probabilidade Real: ${evento.probabilidadeRealDraw.toFixed(2)}%)\n`;
           }
           mensagem += `\n`;
         }
