@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { apiToken } = require('../config/config');
-const { calcularProbabilidadeImplicita, dividirMensagem, calcularROI, calcularOvervalue } = require('../utils/oddsUtils');
-const obterProbabilidadesReais = require('../services/probabilidadesReais');
+const { calcularProbabilidadeImplicita, dividirMensagem } = require('../utils/oddsUtils');
+const { TeamStats } = require('../models');
 
 async function buscarOdds() {
   const url = `https://api.the-odds-api.com/v4/sports/soccer_brazil_campeonato/odds/?regions=us&oddsFormat=decimal&apiKey=${apiToken}`;
@@ -15,22 +15,16 @@ async function buscarOdds() {
   }
 }
 
-function formatarDataProximoJogo(odds) {
-  const proximoJogo = odds[0]?.commence_time;
-  if (proximoJogo) {
-    const data = new Date(proximoJogo);
-    const dia = String(data.getDate()).padStart(2, '0');
-    const mes = String(data.getMonth() + 1).padStart(2, '0');
-    return `${dia}/${mes}`;
-  }
-  return '';
-}
-
-function obterProximoDiaComJogos(odds, hoje) {
-  const datasEventos = odds.map(evento => new Date(evento.commence_time));
-  const datasFuturas = datasEventos.filter(data => data >= hoje);
-  const proximoDia = Math.min(...datasFuturas);
-  return new Date(proximoDia).toISOString().split('T')[0];
+async function obterProbabilidadesReais() {
+  const teams = await TeamStats.findAll();
+  const probabilidadesReais = {};
+  teams.forEach(team => {
+    probabilidadesReais[team.teamName] = {
+      winRate: team.wins / team.games,
+      drawRate: 1 - (team.wins / team.games)
+    };
+  });
+  return probabilidadesReais;
 }
 
 async function oddsCommand(bot, msg) {
@@ -41,17 +35,25 @@ async function oddsCommand(bot, msg) {
     const probabilidadesReais = await obterProbabilidadesReais();
 
     if (odds && odds.length > 0) {
-      let mensagem = `*Melhores Odds de Futebol do Brasileirão Série A para ${formatarDataProximoJogo(odds)}:*\n\n`;
+      let mensagem = '*Melhores Odds de Futebol do Brasileirão Série A:*\n\n';
       let melhorEvento = null;
       let maiorProbabilidade = 0;
-      let outrasOpcoes = [];
+      const eventos = [];
 
+      // Encontrar o próximo dia com jogos
       const hoje = new Date();
-      const proximoDia = obterProximoDiaComJogos(odds, hoje);
-
-      odds.forEach(evento => {
+      const proximosEventos = odds.filter(evento => {
         const dataEvento = new Date(evento.commence_time);
-        if (dataEvento.toISOString().split('T')[0] === proximoDia) {
+        return dataEvento > hoje;
+      }).sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time));
+
+      const proximoDia = proximosEventos.length > 0 ? new Date(proximosEventos[0].commence_time).toISOString().split('T')[0] : null;
+
+      // Filtrar os jogos do próximo dia
+      proximosEventos.forEach(evento => {
+        const dataEventoStr = new Date(evento.commence_time).toISOString().split('T')[0];
+
+        if (dataEventoStr === proximoDia) {
           const bookmaker = evento.bookmakers.find(bm => bm.key === 'bovada');
           if (bookmaker) {
             const mercado = bookmaker.markets.find(market => market.key === 'h2h');
@@ -65,22 +67,9 @@ async function oddsCommand(bot, msg) {
 
             const probabilidadeRealHome = (probabilidadesReais[evento.home_team]?.winRate || probabilidadeImplicitaHome / 100) * 100;
             const probabilidadeRealAway = (probabilidadesReais[evento.away_team]?.winRate || probabilidadeImplicitaAway / 100) * 100;
-            const probabilidadeRealDraw = (probabilidadesReais[evento.home_team]?.drawRate || probabilidadeImplicitaDraw / 100) * 100;
+            const probabilidadeRealDraw = (1 - probabilidadeRealHome / 100 - probabilidadeRealAway / 100) * 100;
 
-            // Se a probabilidade do empate for zero, usamos a probabilidade implícita.
-            const probabilidadeFinalDraw = probabilidadeRealDraw === 0 ? probabilidadeImplicitaDraw : probabilidadeRealDraw;
-
-            const overvalueHome = calcularOvervalue(probabilidadeRealHome, oddsHome);
-            const overvalueAway = calcularOvervalue(probabilidadeRealAway, oddsAway);
-            const overvalueDraw = calcularOvervalue(probabilidadeFinalDraw, oddsDraw);
-
-            const roiHome = calcularROI(probabilidadeRealHome, oddsHome);
-            const roiAway = calcularROI(probabilidadeRealAway, oddsAway);
-            const roiDraw = calcularROI(probabilidadeFinalDraw, oddsDraw);
-
-            const maiorProbabilidadeAtual = Math.max(probabilidadeRealHome, probabilidadeRealAway, probabilidadeFinalDraw);
-
-            const eventoAtual = {
+            eventos.push({
               home_team: evento.home_team,
               away_team: evento.away_team,
               oddsHome,
@@ -89,108 +78,59 @@ async function oddsCommand(bot, msg) {
               bookmaker,
               probabilidadeRealHome,
               probabilidadeRealAway,
-              probabilidadeFinalDraw,
+              probabilidadeRealDraw,
               probabilidadeImplicitaHome,
               probabilidadeImplicitaAway,
-              probabilidadeImplicitaDraw,
-              overvalueHome,
-              overvalueAway,
-              overvalueDraw,
-              roiHome,
-              roiAway,
-              roiDraw
-            };
-
-            if (maiorProbabilidadeAtual > maiorProbabilidade) {
-              if (melhorEvento) {
-                outrasOpcoes.push(melhorEvento);
-              }
-              maiorProbabilidade = maiorProbabilidadeAtual;
-              melhorEvento = eventoAtual;
-            } else {
-              outrasOpcoes.push(eventoAtual);
-            }
+              probabilidadeImplicitaDraw
+            });
           }
         }
       });
 
-      if (melhorEvento) {
-        const melhorOpcao = {
-          time: '',
-          probabilidade: 0,
-          odds: 0,
-          overvalue: 0,
-          roi: 0
-        };
-        if (melhorEvento.probabilidadeRealHome >= melhorEvento.probabilidadeRealAway && melhorEvento.probabilidadeRealHome >= melhorEvento.probabilidadeFinalDraw) {
-          melhorOpcao.time = `Vitória ${melhorEvento.home_team}`;
-          melhorOpcao.probabilidade = melhorEvento.probabilidadeRealHome;
-          melhorOpcao.odds = melhorEvento.oddsHome;
-          melhorOpcao.overvalue = melhorEvento.overvalueHome;
-          melhorOpcao.roi = melhorEvento.roiHome;
-        } else if (melhorEvento.probabilidadeRealAway > melhorEvento.probabilidadeRealHome && melhorEvento.probabilidadeRealAway >= melhorEvento.probabilidadeFinalDraw) {
-          melhorOpcao.time = `Vitória ${melhorEvento.away_team}`;
-          melhorOpcao.probabilidade = melhorEvento.probabilidadeRealAway;
-          melhorOpcao.odds = melhorEvento.oddsAway;
-          melhorOpcao.overvalue = melhorEvento.overvalueAway;
-          melhorOpcao.roi = melhorEvento.roiAway;
-        } else {
-          melhorOpcao.time = 'Empate';
-          melhorOpcao.probabilidade = melhorEvento.probabilidadeFinalDraw;
-          melhorOpcao.odds = melhorEvento.oddsDraw;
-          melhorOpcao.overvalue = melhorEvento.overvalueDraw;
-          melhorOpcao.roi = melhorEvento.roiDraw;
-        }
+      // Ordenar eventos pela maior probabilidade
+      eventos.sort((a, b) => Math.max(b.probabilidadeRealHome, b.probabilidadeRealAway, b.probabilidadeRealDraw) - Math.max(a.probabilidadeRealHome, a.probabilidadeRealAway, a.probabilidadeRealDraw));
 
-        mensagem += `👉 ${melhorOpcao.time}: ${melhorOpcao.odds} (Probabilidade Real: ${melhorOpcao.probabilidade.toFixed(2)}%, Overvalue: ${melhorOpcao.overvalue.toFixed(2)}, ROI: ${melhorOpcao.roi.toFixed(2)}%)\n\n`;
+      // Garantir que o melhor evento não seja duplicado na lista de opções
+      melhorEvento = eventos[0];
+      maiorProbabilidade = Math.max(melhorEvento.probabilidadeRealHome, melhorEvento.probabilidadeRealAway, melhorEvento.probabilidadeRealDraw);
+      let melhorAposta = '';
 
-        outrasOpcoes = outrasOpcoes.filter(evento => evento.home_team !== melhorEvento.home_team && evento.away_team !== melhorEvento.away_team);
-        outrasOpcoes.forEach((evento, index) => {
-          const outraOpcao = {
-            time: '',
-            probabilidade: 0,
-            odds: 0,
-            overvalue: 0,
-            roi: 0
-          };
-          if (evento.probabilidadeRealHome >= evento.probabilidadeRealAway && evento.probabilidadeRealHome >= evento.probabilidadeFinalDraw) {
-            outraOpcao.time = `Vitória ${evento.home_team}`;
-            outraOpcao.probabilidade = evento.probabilidadeRealHome;
-            outraOpcao.odds = evento.oddsHome;
-            outraOpcao.overvalue = evento.overvalueHome;
-            outraOpcao.roi = evento.roiHome;
-          } else if (evento.probabilidadeRealAway > evento.probabilidadeRealHome && evento.probabilidadeRealAway >= evento.probabilidadeFinalDraw) {
-            outraOpcao.time = `Vitória ${evento.away_team}`;
-            outraOpcao.probabilidade = evento.probabilidadeRealAway;
-            outraOpcao.odds = evento.oddsAway;
-            outraOpcao.overvalue = evento.overvalueAway;
-            outraOpcao.roi = evento.roiAway;
-          } else {
-            outraOpcao.time = 'Empate';
-            outraOpcao.probabilidade = evento.probabilidadeFinalDraw;
-            outraOpcao.odds = evento.oddsDraw;
-            outraOpcao.overvalue = evento.overvalueDraw;
-            outraOpcao.roi = evento.roiDraw;
-          }
-
-          mensagem += `${index + 1}. ${evento.home_team} vs ${evento.away_team}\n`;
-          mensagem += `  - ${outraOpcao.time}: ${outraOpcao.odds} (Probabilidade Real: ${outraOpcao.probabilidade.toFixed(2)}%, Overvalue: ${outraOpcao.overvalue.toFixed(2)}, ROI: ${outraOpcao.roi.toFixed(2)}%)\n\n`;
-          });
-  
-          const mensagens = dividirMensagem(mensagem);
-          for (const mensagem of mensagens) {
-            await bot.sendMessage(chatId, mensagem, { parse_mode: 'Markdown' });
-          }
-        } else {
-          bot.sendMessage(chatId, 'Não há odds disponíveis no momento.');
-        }
+      if (maiorProbabilidade === melhorEvento.probabilidadeRealHome) {
+        melhorAposta = `👉 Vitória ${melhorEvento.home_team}: ${melhorEvento.oddsHome} (Probabilidade Real: ${melhorEvento.probabilidadeRealHome.toFixed(2)}%)\n\n`;
+      } else if (maiorProbabilidade === melhorEvento.probabilidadeRealAway) {
+        melhorAposta = `👉 Vitória ${melhorEvento.away_team}: ${melhorEvento.oddsAway} (Probabilidade Real: ${melhorEvento.probabilidadeRealAway.toFixed(2)}%)\n\n`;
       } else {
-        bot.sendMessage(chatId, 'Não há odds disponíveis no momento.');
+        melhorAposta = `👉 Empate: ${melhorEvento.oddsDraw} (Probabilidade Real: ${melhorEvento.probabilidadeRealDraw.toFixed(2)}%)\n\n`;
       }
-    } catch (error) {
-      bot.sendMessage(chatId, 'Erro ao buscar dados de odds.');
+
+      mensagem += `${melhorEvento.home_team} vs ${melhorEvento.away_team}\n`;
+      mensagem += melhorAposta;
+
+      // Adicionar as outras opções excluindo o melhor evento
+      eventos.slice(1, 4).forEach((evento, index) => {
+        if (evento.home_team !== melhorEvento.home_team || evento.away_team !== melhorEvento.away_team) {
+          mensagem += `${index + 1}. ${evento.home_team} vs ${evento.away_team}\n`;
+          if (evento.probabilidadeRealHome > evento.probabilidadeRealAway && evento.probabilidadeRealHome > evento.probabilidadeRealDraw) {
+            mensagem += `  - Vitória ${evento.home_team}: ${evento.oddsHome} (Probabilidade Real: ${evento.probabilidadeRealHome.toFixed(2)}%)\n`;
+          } else if (evento.probabilidadeRealAway > evento.probabilidadeRealHome && evento.probabilidadeRealAway > evento.probabilidadeRealDraw) {
+            mensagem += `  - Vitória ${evento.away_team}: ${evento.oddsAway} (Probabilidade Real: ${evento.probabilidadeRealAway.toFixed(2)}%)\n`;
+          } else {
+            mensagem += `  - Empate: ${evento.oddsDraw} (Probabilidade Real: ${evento.probabilidadeRealDraw.toFixed(2)}%)\n`;
+          }
+          mensagem += `\n`;
+        }
+      });
+
+      const mensagens = dividirMensagem(mensagem);
+      for (const mensagem of mensagens) {
+        await bot.sendMessage(chatId, mensagem, { parse_mode: 'Markdown' });
+      }
+    } else {
+      bot.sendMessage(chatId, 'Não há odds disponíveis no momento.');
     }
+  } catch (error) {
+    bot.sendMessage(chatId, 'Erro ao buscar dados de odds.');
   }
-  
-  module.exports = oddsCommand;
-  
+}
+
+module.exports = oddsCommand;
