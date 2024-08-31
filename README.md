@@ -1,4 +1,3 @@
-```markdown
 # Bot de Apostas Esportivas no Telegram
 
 Este bot fornece odds e probabilidades em tempo real para eventos esportivos, especificamente para o Campeonato Brasileiro de Futebol (Brasileirão).
