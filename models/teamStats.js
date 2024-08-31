@@ -23,10 +23,6 @@ const TeamStats = sequelize.define('TeamStats', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
-  data: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-  },
 }, {
   timestamps: true,
 });

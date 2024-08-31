@@ -2,9 +2,8 @@ const axios = require('axios');
 const { TeamStats } = require('../models');
 const { apiFootballToken } = require('../config/config');
 
-async function updateTeamStats(teamId) {
+async function fetchTeamStats(teamId) {
   const url = `https://v3.football.api-sports.io/teams/statistics?league=71&season=2024&team=${teamId}`;
-
   try {
     const response = await axios.get(url, {
       headers: {
@@ -12,44 +11,48 @@ async function updateTeamStats(teamId) {
         'x-rapidapi-key': apiFootballToken,
       },
     });
-    const data = response.data.response;
 
-    if (!data || !data.team || !data.fixtures || !data.goals) {
+    const stats = response.data.response;
+
+    console.log(`Dados da API para o time ${teamId}:`, JSON.stringify(stats, null, 2));
+
+    if (stats && stats.team && stats.fixtures && stats.goals && stats.fixtures.wins && stats.fixtures.played) {
+      const { team, fixtures, goals } = stats;
+
+      await TeamStats.upsert({
+        teamName: team.name,
+        wins: fixtures.wins.total,
+        games: fixtures.played.total,
+        goalsFor: goals.for.total,
+        goalsAgainst: goals.against.total,
+      });
+
+      console.log(`Estatísticas do time ${team.name} atualizadas.`);
+    } else {
       console.log(`Dados insuficientes para o time: ${teamId}`);
-      return;
     }
-
-    const teamName = data.team.name;
-    const wins = data.fixtures.wins.total;
-    const games = data.fixtures.played.total;
-    const goalsFor = data.goals.for.total.total;
-    const goalsAgainst = data.goals.against.total.total;
-
-    await TeamStats.upsert({
-      teamName,
-      wins,
-      games,
-      goalsFor,
-      goalsAgainst,
-      data: JSON.stringify(data), // Armazenar todo o JSON
-    });
-
-    console.log(`Estatísticas do time ${teamName} atualizadas.`);
   } catch (error) {
     console.error(`Erro ao buscar estatísticas do time ${teamId}:`, error.message);
   }
 }
 
-async function updateAllTeams() {
-  const teamIds = [118, 119, 120, 121, 124, 126, 127, 130, 131, 133, 134, 135, 136, 140, 144, 152, 154, 794, 1062, 1193];
+async function updateTeamStats() {
+  const teams = [118, 119, 120, 121, 124, 126, 127, 130, 131, 133, 134, 135, 136, 140, 144, 152, 154, 794, 1062, 1193];
+  
+  for (let i = 0; i < teams.length; i += 10) {
+    const teamBatch = teams.slice(i, i + 10);
 
-  for (let i = 0; i < teamIds.length; i++) {
-    if (i > 0 && i % 10 === 0) {
-      console.log('Esperando 1 minuto para evitar limites de taxa...');
-      await new Promise(resolve => setTimeout(resolve, 60000)); // Espera 1 minuto
+    const promises = teamBatch.map((teamId, index) => 
+      new Promise(resolve => setTimeout(() => resolve(fetchTeamStats(teamId)), index * 2000)) // Espaça as requisições por 2 segundos
+    );
+
+    await Promise.all(promises);
+
+    if (i + 10 < teams.length) {
+      console.log('Aguardando 1 minuto para continuar com o próximo lote de times...');
+      await new Promise(resolve => setTimeout(resolve, 60000)); // Aguarda 1 minuto antes de continuar
     }
-    await updateTeamStats(teamIds[i]);
   }
 }
 
-updateAllTeams();
+updateTeamStats();

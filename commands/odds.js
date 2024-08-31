@@ -18,35 +18,12 @@ async function buscarOdds() {
 async function obterProbabilidadesReais() {
   const teams = await TeamStats.findAll();
   const probabilidadesReais = {};
-  
-  teams.map((team, index) => {
-    try {
-      if (index > 0) {
-        const data = JSON.parse(team.data); // Parse the JSON string back to an object
-
-      console.log(`teste`, data.fixtures);
-      
-      if (data && data.fixtures) {
-        // Calculate win rate
-        const totalGames = data.fixtures.played.total;
-        const winRate = totalGames > 0 ? data.fixtures.wins.total / totalGames : 0;
-        
-        // Calculate draw rate
-        const drawRate = totalGames > 0 ? data.fixtures.draws.total / totalGames : 0;
-        
-        probabilidadesReais[team.teamName] = {
-          winRate,
-          drawRate
-        };
-      } else {
-        console.log(`Dados insuficientes para o time: ${team.teamName}`);
-      }
-      }
-    } catch (error) {
-      console.error(`Erro ao processar dados do time ${team.teamName}:`, error.message);
-    }
+  teams.forEach(team => {
+    probabilidadesReais[team.teamName] = {
+      winRate: team.wins / team.games,
+      drawRate: 1 - (team.wins / team.games)
+    };
   });
-  
   return probabilidadesReais;
 }
 
@@ -90,7 +67,7 @@ async function oddsCommand(bot, msg) {
 
             const probabilidadeRealHome = (probabilidadesReais[evento.home_team]?.winRate || probabilidadeImplicitaHome / 100) * 100;
             const probabilidadeRealAway = (probabilidadesReais[evento.away_team]?.winRate || probabilidadeImplicitaAway / 100) * 100;
-            const probabilidadeRealDraw = (probabilidadesReais[evento.home_team]?.drawRate || probabilidadeImplicitaDraw / 100) * 100;
+            const probabilidadeRealDraw = (probabilidadeRealHome && probabilidadeRealAway) ? (1 - (probabilidadeRealHome / 100 + probabilidadeRealAway / 100)) * 100 : probabilidadeImplicitaDraw;
 
             eventos.push({
               home_team: evento.home_team,
@@ -152,10 +129,8 @@ async function oddsCommand(bot, msg) {
       bot.sendMessage(chatId, 'Não há odds disponíveis no momento.');
     }
   } catch (error) {
-    console.error('Erro ao buscar dados de odds:', error.message);
     bot.sendMessage(chatId, 'Erro ao buscar dados de odds.');
   }
 }
 
 module.exports = oddsCommand;
-
