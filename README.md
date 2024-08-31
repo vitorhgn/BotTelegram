@@ -12,8 +12,8 @@ Este bot fornece odds e probabilidades em tempo real para eventos esportivos, es
 ### 1. Clonar o Repositório
 
 ```bash
-git clone https://github.com/vitorhgn/telegram-sports-betting-bot.git
-cd telegram-sports-betting-bot
+git clone https://github.com/vitorhgn/BotTelegram.git
+cd BotTelegram
 ```
 
 ### 2. Instalar Dependências
