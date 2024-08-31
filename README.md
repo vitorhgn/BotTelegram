@@ -59,7 +59,11 @@ Edite o arquivo `.env` e substitua os placeholders pelos seus tokens de API.
 Finalmente, inicie o bot com:
 
 ```bash
-node index.js
+npm run dev
+```
+ou
+```bash
+yarn dev
 ```
 
 ## Uso
@@ -69,4 +73,3 @@ O bot agora irá automaticamente buscar e enviar as melhores odds para os próxi
 ## Licença
 
 Este projeto é licenciado sob a Licença MIT.
-```
